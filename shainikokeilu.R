@@ -1,6 +1,12 @@
 library(shiny)
 library(lme4)
 library(dplyr)
+library(DT)
+library(caTools)
+library(readr)
+library(caret)
+library(rpart)
+
 ui <- fluidPage(
   fileInput("upload","Lataa tiedosto"),
   tableOutput("head"),
@@ -9,8 +15,14 @@ ui <- fluidPage(
   selectInput("var3", "Select Variable", choices = NULL),
   selectInput("var4", "Select Variable", choices = NULL),
   selectInput("var5", "Select Variable", choices = NULL),
+  selectInput("var1_ml", "Select ML Variable", choices = NULL),
+  selectInput("var2_ml", "Select ML Variable", choices = NULL),
+  selectInput("var3_ml", "Select ML Variable", choices = NULL),
   actionButton("go","Run model"),
-  verbatimTextOutput("glmSummary")
+  actionButton("go_ml","Run ML model"),
+  downloadButton("download", "Download .tsv"),
+  verbatimTextOutput("glmSummary"),
+  verbatimTextOutput("mlSummary")
 )
 
 server <- function(input, output, session) { 
@@ -28,7 +40,8 @@ server <- function(input, output, session) {
     
   })
   
-
+  
+  
   observeEvent(input$upload, {
     req(data())
     updateSelectInput(session, "var1", choices = colnames(data()))
@@ -36,6 +49,9 @@ server <- function(input, output, session) {
     updateSelectInput(session, "var3", choices = colnames(data()))
     updateSelectInput(session, "var4", choices = colnames(data()))
     updateSelectInput(session, "var5", choices = colnames(data()))
+    updateSelectInput(session, "var1_ml", choices = colnames(data()))
+    updateSelectInput(session, "var2_ml", choices = colnames(data()))
+    updateSelectInput(session, "var3_ml", choices = colnames(data()))
   })
   
   glmModel <- eventReactive(input$go, {
@@ -51,26 +67,50 @@ server <- function(input, output, session) {
     return(model)
   })
   
-
   
-  output$regressio <- renderPrint({
-    glmer(f(), data = data(), family = binomial)
+  
+  mlModel <- eventReactive(input$go_ml, {
+    req(data(),input$var1_ml,input$var2_ml,input$var3_ml)
+    x3 <- as.factor(data()[[as.name(input$var1_ml)]])
+    y3 <- as.factor(data()[[as.name(input$var2_ml)]])
+    z3 <- as.factor(data()[[as.name(input$var3_ml)]])
+    df <- data.frame(x3,y3,z3)
+    set.seed(123)
+    split = sample.split(df$x3, SplitRatio = 0.75)
+    training_set = subset(df, split == TRUE)
+    test_set = subset(df, split == FALSE)
+    classifier = rpart(formula = x3 ~ y3 + z3, data = training_set)
+    y_pred = predict(classifier, newdata = test_set[-1], type = 'class')
+    sum(diag(acc))/sum(acc)*100
+    
+    
   })
+  
   
   output$glmSummary <- renderPrint({
     req(glmModel())
-    summary(glmModel())
+    glmModel()
   })
   
-
-
-
+  output$mlSummary <- renderPrint({
+    req(mlModel())
+    mlModel()
+  })
+  
+  output$download <- downloadHandler(
+    filename = function() {
+      paste0(mlModel(), ".csv")
+    },
+    content = function(file) {
+      vroom::vroom_write(data(), file)
+    }
+  )
+  
   output$head <- renderTable({
     head(data())
   })
-  } 
+} 
 
 
 shinyApp(ui = ui, server = server) 
-
 
